@@ -1,0 +1,6 @@
+{
+  "name": "Sổ Tay Kiến Thức",
+  "description": "Khám phá mọi chủ đề, từng lớp một với sơ đồ và giải thích khoa học chuyên sâu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

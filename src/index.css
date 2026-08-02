@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .font-display {
+    font-family: "EB Garamond", serif;
+  }
+  .font-headline {
+    font-family: "EB Garamond", serif;
+  }
+  .font-body {
+    font-family: "Manrope", sans-serif;
+  }
+  .font-label {
+    font-family: "Manrope", sans-serif;
+  }
+}
+
+.topic-input {
+  border: none;
+  border-bottom: 1px solid #d8d0c8;
+  background-color: transparent;
+  border-radius: 0;
+  padding: 12px 0;
+  box-shadow: none !important;
+  transition: border-color 0.2s ease;
+}
+
+.topic-input:focus {
+  outline: none;
+  border-bottom: 2px solid #c2652a;
+}
+
+.ghost-button {
+  border: 1px solid #d8d0c8;
+  background-color: transparent;
+  transition: all 0.2s ease;
+}
+
+.ghost-button:hover {
+  border-color: #c2652a;
+  color: #c2652a;
+  background-color: #f2ece4;
+}
+
+.ghost-button:active {
+  transform: scale(0.98);
+}
+
+.ripple {
+  position: absolute;
+  border-radius: 50%;
+  transform: scale(0);
+  animation: ripple-animation 600ms linear;
+  background-color: rgba(194, 101, 42, 0.4);
+  pointer-events: none;
+}
+
+@keyframes ripple-animation {
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+/* Custom scrollbar for horizontal thumbnail path */
+.custom-scrollbar::-webkit-scrollbar {
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f2ece4;
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #d8d0c8;
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #c2652a;
+}
+
