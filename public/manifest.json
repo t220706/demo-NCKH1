@@ -1,0 +1,16 @@
+{
+  "short_name": "Sổ Tay Kiến Thức",
+  "name": "Sổ Tay Kiến Thức - Giải Thích Khoa Học Đa Lớp",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#faf5ee",
+  "theme_color": "#c2652a",
+  "display": "standalone",
+  "orientation": "portrait"
+}
