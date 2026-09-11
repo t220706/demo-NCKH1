@@ -33,13 +33,28 @@ function App() {
   const [deepChoice, setDeepChoice] = useState('');
   const [trap, setTrap] = useState({ topic: 'Khối lượng riêng', claim: 'Một khối nhôm có khối lượng 270 g và thể tích 100 cm³. Vì khối lượng riêng của nhôm là 2,7 g/cm³ nên áp suất của khối nhôm lên mặt bàn là 2,7 g/cm³.', turns: 0, messages: [{ role: 'ai', text: 'Hãy đọc kỹ phát biểu. Em có nhận thấy điều gì chưa hợp lý không? Có thể kiểm tra cả đại lượng và đơn vị.' }] as { role: string; text: string }[], solved: false, revealed: false });
   const [trapInput, setTrapInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => { localStorage.setItem('exploreLogs', JSON.stringify(exploreLogs)); }, [exploreLogs]);
   useEffect(() => { localStorage.setItem('trapLogs', JSON.stringify(trapLogs)); }, [trapLogs]);
 
   const stats = useMemo(() => ({ topics: new Set(exploreLogs.map(x => x.topic)).size, firstTry: Math.round(exploreLogs.filter(x => x.firstTry).length / Math.max(1, exploreLogs.length) * 100), avgRetry: (exploreLogs.reduce((a, x) => a + x.attempts - 1, 0) / Math.max(1, exploreLogs.length)).toFixed(1), found: Math.round(trapLogs.filter(x => x.selfFound).length / Math.max(1, trapLogs.length) * 100) }), [exploreLogs, trapLogs]);
 
-  const makeDiscovery = (raw: string, retry = false) => {
+  const makeDiscovery = async (raw: string, retry = false) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/ai/explore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: raw, retry }) });
+      const live = await response.json();
+      if (response.ok && live.source && live.source !== 'fallback' && live.question && Array.isArray(live.options)) {
+        setDiscovery(live as Discovery);
+        setSelectedAnswer(null); setAttempts(0); setDeepChoice('');
+        return;
+      }
+    } catch (error) {
+      console.warn('LLM endpoint unavailable, using demo fallback', error);
+    } finally {
+      setIsLoading(false);
+    }
     const topic = raw.toLowerCase().includes('áp suất') ? 'Áp suất' : raw.toLowerCase().includes('khối lượng riêng') ? 'Khối lượng riêng' : raw.trim().replace(/^./, s => s.toUpperCase());
     const pressure = topic === 'Áp suất';
     setDiscovery({ topic, refined: pressure ? 'Giải thích áp suất cho học sinh lớp 8 bằng thí nghiệm hai đầu đinh, nêu công thức p = F/S, đơn vị Pa và liên hệ với giày trượt tuyết.' : 'Giải thích khối lượng riêng cho học sinh lớp 8 bằng ví dụ dầu và nước, nêu công thức D = m/V, đơn vị kg/m³ và một câu hỏi vận dụng.', why: 'Bổ sung bối cảnh lớp 8, mục tiêu học tập và ràng buộc về ví dụ, công thức, đơn vị để câu trả lời dễ kiểm chứng hơn.', text: pressure ? 'Áp suất cho biết mức độ tác dụng của lực lên một diện tích. Với cùng một lực, diện tích bị ép càng nhỏ thì áp suất càng lớn: đó là lý do đầu đinh nhọn dễ xuyên vào gỗ, còn giày trượt tuyết có bản rộng để giảm áp suất lên tuyết. Công thức: p = F/S, trong đó p đo bằng pascal (Pa), F là lực (N), S là diện tích (m²).' : 'Khối lượng riêng cho biết một mét khối chất có khối lượng bao nhiêu. Công thức D = m/V, đơn vị thường dùng là kg/m³ hoặc g/cm³. Dầu nổi trên nước vì dầu có khối lượng riêng nhỏ hơn nước; cùng một thể tích dầu chứa ít vật chất hơn nên nhẹ hơn.', question: pressure ? (retry ? 'Một bạn ấn cùng một lực lên hai mặt bàn chải: mặt có nhiều lông và mặt có ít lông. Mặt nào tạo áp suất lớn hơn?' : 'Cùng một lực, vì sao giày trượt tuyết có bản rộng?') : (retry ? 'Một vật có D = 2,7 g/cm³ và V = 100 cm³. Khối lượng của vật là bao nhiêu?' : 'Một vật có khối lượng 540g và thể tích 200cm³. Khối lượng riêng là bao nhiêu?'), options: pressure ? ['Mặt có ít lông vì diện tích tiếp xúc nhỏ hơn', 'Mặt có nhiều lông vì diện tích lớn hơn', 'Hai mặt như nhau', 'Không thể xác định'] : ['0,37 g/cm³', '2,7 g/cm³', '340 g/cm³', '740 g/cm³'], answer: pressure ? 0 : (retry ? 2 : 1), explanation: pressure ? 'Giữ nguyên lực F, giảm diện tích S thì p = F/S tăng.' : 'D = m/V = 540/200 = 2,7 g/cm³.', deep: ['Công thức và bài tính', 'Ứng dụng thực tế', 'Liên hệ hiện tượng tự nhiên'], visual: pressure ? 'pressure' : 'density', voice: pressure ? 'Áp suất phụ thuộc vào lực tác dụng và diện tích bị ép. Diện tích càng nhỏ, áp suất càng lớn.' : 'Khối lượng riêng là khối lượng của một đơn vị thể tích. Hãy nhớ công thức D bằng m chia V.', });
@@ -57,8 +72,21 @@ function App() {
   };
   const saveExplore = () => { if (!discovery || selectedAnswer === null) return; setExploreLogs([{ id: uid(), student: student.id, className: student.className, time: now(), topic: discovery.topic, original: prompt || 'áp suất', refined: discovery.refined, question: discovery.question, attempts: attempts || 1, firstTry: attempts <= 1 && selectedAnswer === discovery.answer, deepDive: deepChoice || 'Chưa chọn' }, ...exploreLogs]); };
 
-  const sendTrap = () => {
+  const sendTrap = async () => {
     const text = trapInput.trim(); if (!text) return;
+    const nextMessages = [...trap.messages, { role: 'student', text }];
+    try {
+      const response = await fetch('/api/ai/trap', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: trap.topic, claim: trap.claim, messages: nextMessages }) });
+      const live = await response.json();
+      if (response.ok && live.source && live.source !== 'fallback' && live.reply) {
+        setTrap({ ...trap, turns: live.turns || trap.turns + 1, solved: Boolean(live.solved), revealed: (live.turns || 0) >= 6, messages: [...nextMessages, { role: 'ai', text: live.reply }] });
+        setTrapInput('');
+        if (live.solved && !trap.solved) setTrapLogs([{ id: uid(), student: student.id, className: student.className, time: now(), topic: trap.topic, error: live.errorSummary || 'Lỗi do AI tạo', turns: live.turns || trap.turns + 1, selfFound: Boolean(live.selfFound), summary: text }, ...trapLogs]);
+        return;
+      }
+    } catch (error) {
+      console.warn('LLM trap endpoint unavailable, using demo fallback', error);
+    }
     const lower = text.toLowerCase(); const identifies = lower.includes('áp suất') || lower.includes('đơn vị') || lower.includes('lực') || lower.includes('sai');
     const turns = trap.turns + 1; let reply = 'Hãy thử đối chiếu tên đại lượng trong đề với đơn vị của nó. Em đang nói về khối lượng riêng hay một đại lượng khác?';
     let solved = trap.solved;

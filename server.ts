@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { callRealLlm, llmStatus } from "./server/llm";
 
 dotenv.config();
 
@@ -273,6 +274,40 @@ function getImageForTopicLayer(topic: string, depthIndex: number): string {
   const seed = Math.abs(hashCode(`${topic}_${depthIndex}`));
   return `https://image.pollinations.ai/prompt/${cleanTopicPrompt}?width=1024&height=640&nologo=true&seed=${seed}`;
 }
+
+app.get("/api/ai/status", (_req, res) => res.json(llmStatus()));
+
+app.post("/api/ai/explore", async (req, res) => {
+  const { prompt, retry = false } = req.body || {};
+  if (!prompt || typeof prompt !== "string" || prompt.trim().split(/\s+/).length < 3) {
+    return res.status(400).json({ error: "Prompt phải có ít nhất 3 từ" });
+  }
+  try {
+    const result = await callRealLlm(
+      "Bạn là giáo viên KHTN lớp 8 và chuyên gia hướng dẫn học sinh dùng AI. Chỉ trả về JSON hợp lệ, không markdown.",
+      `Học sinh viết prompt: ${prompt}\n${retry ? "Hãy tạo một câu hỏi vận dụng mới, khác câu trước nhưng cùng chủ đề." : ""}\n\nTạo JSON theo cấu trúc sau:\n{"topic":"tên chủ đề","refined":"prompt đã chau chuốt, có bối cảnh lớp 8 và ràng buộc rõ","why":"một câu giải thích vì sao prompt được cải thiện","text":"đoạn giải thích 120-180 từ, chính xác và dễ hiểu","question":"câu hỏi vận dụng cần dùng phần giải thích","options":["phương án A","phương án B","phương án C","phương án D"],"answer":0,"explanation":"giải thích đáp án","deep":["hướng đào sâu 1","hướng đào sâu 2","hướng đào sâu 3"],"voice":"lời đọc 2 câu ngắn","visual":"density hoặc pressure"}. answer là số nguyên 0-3.`
+    );
+    if (result.provider !== "fallback") return res.json({ ...result.data, source: result.provider });
+  } catch (error) {
+    console.error("/api/ai/explore failed:", error);
+  }
+  return res.json({ source: "fallback", error: "LLM chưa sẵn sàng" });
+});
+
+app.post("/api/ai/trap", async (req, res) => {
+  const { topic, claim, messages = [] } = req.body || {};
+  if (!claim) return res.status(400).json({ error: "Claim is required" });
+  try {
+    const result = await callRealLlm(
+      "Bạn là AI Bẫy lỗi dạy KHTN lớp 8. Chỉ trả về JSON hợp lệ, không markdown. Không được nói thẳng lỗi trước khi học sinh nhận ra; hãy dùng gợi ý Socratic tăng dần. Sau lượt 6 được chỉ rõ.",
+      `Chủ đề: ${topic}\nPhát biểu có lỗi: ${claim}\nLịch sử: ${JSON.stringify(messages)}\n\nTrả về JSON: {"reply":"phản hồi ngắn cho học sinh","solved":false,"selfFound":false,"errorSummary":"lỗi dành cho giáo viên","turns":1}. Nếu học sinh đã chỉ đúng bản chất lỗi, solved=true và selfFound=true nếu chưa cần AI nói thẳng. turns bằng số lượt học sinh đã nói.`
+    );
+    if (result.provider !== "fallback") return res.json({ ...result.data, source: result.provider });
+  } catch (error) {
+    console.error("/api/ai/trap failed:", error);
+  }
+  return res.json({ source: "fallback", reply: "Hãy đối chiếu tên đại lượng với đơn vị và công thức. Em thấy chỗ nào chưa hợp lý?", solved: false, selfFound: false, turns: messages.filter((m: any) => m.role === "student").length });
+});
 
 // Start Express + Vite Server
 async function startServer() {
