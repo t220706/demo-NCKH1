@@ -45,7 +45,7 @@ function App() {
     setSelectedAnswer(null); setDeepChoice('');
   };
 
-  const submitExplore = () => { if (prompt.trim().split(/\s+/).length >= 3) { makeDiscovery(prompt); setPrompt(''); setView('explore'); } };
+  const submitExplore = () => { if (prompt.trim().split(/\s+/).length >= 3) { makeDiscovery(prompt); setView('explore'); } };
   const answerExplore = () => {
     if (!discovery || selectedAnswer === null) return;
     const correct = selectedAnswer === discovery.answer;
