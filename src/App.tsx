@@ -1,382 +1,100 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Activity, ArrowRight, BarChart3, BookOpen, Check, ChevronDown, CircleHelp, Download,
+  FileText, Flame, GraduationCap, Lightbulb, MessageCircle, Play, RefreshCw, Send,
+  Settings2, ShieldAlert, Sparkles, Target, UserRound, Volume2, X, Zap
+} from 'lucide-react';
 
-import { useState, useEffect } from 'react';
-import { ExplorationSession, ExplorationLayer, AppSettings, TabType, Hotspot } from './types';
-import { PRESET_VOLCANO, FEATURED_PRESETS } from './data/presetTopics';
-import { TopHeader } from './components/TopHeader';
-import { LandingView } from './components/LandingView';
-import { ExplorationCanvas } from './components/ExplorationCanvas';
-import { ExplorationPathStrip } from './components/ExplorationPathStrip';
-import { LayerDetailPanel } from './components/LayerDetailPanel';
-import { HistoryView } from './components/HistoryView';
-import { LibraryView } from './components/LibraryView';
-import { SettingsView } from './components/SettingsView';
-import { BottomNav } from './components/BottomNav';
+type View = 'overview' | 'explore' | 'trap' | 'reports';
+type ExploreLog = { id: string; student: string; className: string; time: string; topic: string; original: string; refined: string; question: string; attempts: number; firstTry: boolean; deepDive: string };
+type TrapLog = { id: string; student: string; className: string; time: string; topic: string; error: string; turns: number; selfFound: boolean; summary: string };
 
-const STORAGE_KEY_HISTORY = 'drilldown_history_v1';
-const STORAGE_KEY_SETTINGS = 'drilldown_settings_v1';
+type Discovery = { topic: string; refined: string; why: string; text: string; question: string; options: string[]; answer: number; explanation: string; deep: string[]; visual: string; voice: string };
 
-const DEFAULT_SETTINGS: AppSettings = {
-  maxDepth: 99999,
-  aiDetailLevel: 'standard',
-  autoPlaySpeech: false,
-  speechVoice: 'default',
-};
+const now = () => new Date().toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
-export default function App() {
-  const [currentTab, setCurrentTab] = useState<TabType>('explore');
-  const [currentSession, setCurrentSession] = useState<ExplorationSession | null>(null);
-  const [history, setHistory] = useState<ExplorationSession[]>([]);
-  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+const seedExplore: ExploreLog[] = [
+  { id: 'e1', student: 'HS-2408', className: '8A1', time: '12/09, 08:42', topic: 'Khối lượng riêng', original: 'giải thích khối lượng riêng', refined: 'Giải thích khối lượng riêng cho học sinh lớp 8 bằng ví dụ đời sống, nêu công thức và đơn vị đo.', question: 'Một vật có khối lượng 540g và thể tích 200cm³. Khối lượng riêng là bao nhiêu?', attempts: 1, firstTry: true, deepDive: 'Ứng dụng thực tế' },
+  { id: 'e2', student: 'HS-2411', className: '8A1', time: '12/09, 08:51', topic: 'Áp suất', original: 'áp suất là gì', refined: 'Mô tả áp suất cho học sinh lớp 8 bằng một thí nghiệm đơn giản, phân biệt áp suất và lực.', question: 'Cùng một lực, vì sao giày trượt tuyết có bản rộng?', attempts: 2, firstTry: false, deepDive: 'Hiện tượng tự nhiên' },
+];
+const seedTrap: TrapLog[] = [{ id: 't1', student: 'HS-2408', className: '8A1', time: '12/09, 09:10', topic: 'Khối lượng riêng', error: 'Nhầm khối lượng riêng với khối lượng', turns: 3, selfFound: true, summary: 'HS chỉ ra sai ở đơn vị và công thức.' }];
 
-  // Load persistent history & settings on mount
-  useEffect(() => {
-    try {
-      const savedHistory = localStorage.getItem(STORAGE_KEY_HISTORY);
-      if (savedHistory) {
-        setHistory(JSON.parse(savedHistory));
-      }
-      const savedSettings = localStorage.getItem(STORAGE_KEY_SETTINGS);
-      if (savedSettings) {
-        setSettings(JSON.parse(savedSettings));
-      }
-    } catch (e) {
-      console.warn("Could not parse saved storage data:", e);
-    }
-  }, []);
+function App() {
+  const [view, setView] = useState<View>('overview');
+  const [student, setStudent] = useState({ id: 'HS-2408', className: '8A1', name: 'Minh Anh' });
+  const [exploreLogs, setExploreLogs] = useState<ExploreLog[]>(() => JSON.parse(localStorage.getItem('exploreLogs') || JSON.stringify(seedExplore)));
+  const [trapLogs, setTrapLogs] = useState<TrapLog[]>(() => JSON.parse(localStorage.getItem('trapLogs') || JSON.stringify(seedTrap)));
+  const [discovery, setDiscovery] = useState<Discovery | null>(null);
+  const [prompt, setPrompt] = useState('');
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [attempts, setAttempts] = useState(0);
+  const [deepChoice, setDeepChoice] = useState('');
+  const [trap, setTrap] = useState({ topic: 'Khối lượng riêng', claim: 'Một khối nhôm có khối lượng 270 g và thể tích 100 cm³. Vì khối lượng riêng của nhôm là 2,7 g/cm³ nên áp suất của khối nhôm lên mặt bàn là 2,7 g/cm³.', turns: 0, messages: [{ role: 'ai', text: 'Hãy đọc kỹ phát biểu. Em có nhận thấy điều gì chưa hợp lý không? Có thể kiểm tra cả đại lượng và đơn vị.' }] as { role: string; text: string }[], solved: false, revealed: false });
+  const [trapInput, setTrapInput] = useState('');
 
-  // Save history updates to localStorage
-  const saveHistoryToStorage = (updatedHistory: ExplorationSession[]) => {
-    setHistory(updatedHistory);
-    try {
-      localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(updatedHistory));
-    } catch (e) {
-      console.warn("Failed to write history to localStorage:", e);
-    }
+  useEffect(() => { localStorage.setItem('exploreLogs', JSON.stringify(exploreLogs)); }, [exploreLogs]);
+  useEffect(() => { localStorage.setItem('trapLogs', JSON.stringify(trapLogs)); }, [trapLogs]);
+
+  const stats = useMemo(() => ({ topics: new Set(exploreLogs.map(x => x.topic)).size, firstTry: Math.round(exploreLogs.filter(x => x.firstTry).length / Math.max(1, exploreLogs.length) * 100), avgRetry: (exploreLogs.reduce((a, x) => a + x.attempts - 1, 0) / Math.max(1, exploreLogs.length)).toFixed(1), found: Math.round(trapLogs.filter(x => x.selfFound).length / Math.max(1, trapLogs.length) * 100) }), [exploreLogs, trapLogs]);
+
+  const makeDiscovery = (raw: string, retry = false) => {
+    const topic = raw.toLowerCase().includes('áp suất') ? 'Áp suất' : raw.toLowerCase().includes('khối lượng riêng') ? 'Khối lượng riêng' : raw.trim().replace(/^./, s => s.toUpperCase());
+    const pressure = topic === 'Áp suất';
+    setDiscovery({ topic, refined: pressure ? 'Giải thích áp suất cho học sinh lớp 8 bằng thí nghiệm hai đầu đinh, nêu công thức p = F/S, đơn vị Pa và liên hệ với giày trượt tuyết.' : 'Giải thích khối lượng riêng cho học sinh lớp 8 bằng ví dụ dầu và nước, nêu công thức D = m/V, đơn vị kg/m³ và một câu hỏi vận dụng.', why: 'Bổ sung bối cảnh lớp 8, mục tiêu học tập và ràng buộc về ví dụ, công thức, đơn vị để câu trả lời dễ kiểm chứng hơn.', text: pressure ? 'Áp suất cho biết mức độ tác dụng của lực lên một diện tích. Với cùng một lực, diện tích bị ép càng nhỏ thì áp suất càng lớn: đó là lý do đầu đinh nhọn dễ xuyên vào gỗ, còn giày trượt tuyết có bản rộng để giảm áp suất lên tuyết. Công thức: p = F/S, trong đó p đo bằng pascal (Pa), F là lực (N), S là diện tích (m²).' : 'Khối lượng riêng cho biết một mét khối chất có khối lượng bao nhiêu. Công thức D = m/V, đơn vị thường dùng là kg/m³ hoặc g/cm³. Dầu nổi trên nước vì dầu có khối lượng riêng nhỏ hơn nước; cùng một thể tích dầu chứa ít vật chất hơn nên nhẹ hơn.', question: pressure ? (retry ? 'Một bạn ấn cùng một lực lên hai mặt bàn chải: mặt có nhiều lông và mặt có ít lông. Mặt nào tạo áp suất lớn hơn?' : 'Cùng một lực, vì sao giày trượt tuyết có bản rộng?') : (retry ? 'Một vật có D = 2,7 g/cm³ và V = 100 cm³. Khối lượng của vật là bao nhiêu?' : 'Một vật có khối lượng 540g và thể tích 200cm³. Khối lượng riêng là bao nhiêu?'), options: pressure ? ['Mặt có ít lông vì diện tích tiếp xúc nhỏ hơn', 'Mặt có nhiều lông vì diện tích lớn hơn', 'Hai mặt như nhau', 'Không thể xác định'] : ['0,37 g/cm³', '2,7 g/cm³', '340 g/cm³', '740 g/cm³'], answer: pressure ? 0 : (retry ? 2 : 1), explanation: pressure ? 'Giữ nguyên lực F, giảm diện tích S thì p = F/S tăng.' : 'D = m/V = 540/200 = 2,7 g/cm³.', deep: ['Công thức và bài tính', 'Ứng dụng thực tế', 'Liên hệ hiện tượng tự nhiên'], visual: pressure ? 'pressure' : 'density', voice: pressure ? 'Áp suất phụ thuộc vào lực tác dụng và diện tích bị ép. Diện tích càng nhỏ, áp suất càng lớn.' : 'Khối lượng riêng là khối lượng của một đơn vị thể tích. Hãy nhớ công thức D bằng m chia V.', });
+    setSelectedAnswer(null); setDeepChoice('');
   };
 
-  // Save settings updates
-  const handleUpdateSettings = (newSettings: Partial<AppSettings>) => {
-    const updated = { ...settings, ...newSettings };
-    setSettings(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(updated));
-    } catch (e) {
-      console.warn("Failed to save settings:", e);
-    }
+  const submitExplore = () => { if (prompt.trim().split(/\s+/).length >= 3) { makeDiscovery(prompt); setPrompt(''); setView('explore'); } };
+  const answerExplore = () => {
+    if (!discovery || selectedAnswer === null) return;
+    const correct = selectedAnswer === discovery.answer;
+    const newAttempts = attempts + 1;
+    setAttempts(newAttempts);
+    if (!correct && newAttempts < 3) return;
+    if (correct) setDeepChoice('');
+  };
+  const saveExplore = () => { if (!discovery || selectedAnswer === null) return; setExploreLogs([{ id: uid(), student: student.id, className: student.className, time: now(), topic: discovery.topic, original: prompt || 'áp suất', refined: discovery.refined, question: discovery.question, attempts: attempts || 1, firstTry: attempts <= 1 && selectedAnswer === discovery.answer, deepDive: deepChoice || 'Chưa chọn' }, ...exploreLogs]); };
+
+  const sendTrap = () => {
+    const text = trapInput.trim(); if (!text) return;
+    const lower = text.toLowerCase(); const identifies = lower.includes('áp suất') || lower.includes('đơn vị') || lower.includes('lực') || lower.includes('sai');
+    const turns = trap.turns + 1; let reply = 'Hãy thử đối chiếu tên đại lượng trong đề với đơn vị của nó. Em đang nói về khối lượng riêng hay một đại lượng khác?';
+    let solved = trap.solved;
+    if (identifies) { reply = 'Chính xác! Lỗi nằm ở chỗ phát biểu đã gọi khối lượng riêng (g/cm³) là áp suất. Áp suất phải liên quan đến lực và diện tích, có đơn vị Pa. Khối lượng riêng của nhôm ở đây là 2,7 g/cm³.'; solved = true; }
+    else if (turns >= 6) { reply = 'Gợi ý cuối: đại lượng ở cuối câu không thể là áp suất vì đơn vị g/cm³ là đơn vị của khối lượng riêng. Hãy sửa lại tên đại lượng.'; }
+    setTrap({ ...trap, turns, solved, revealed: turns >= 6, messages: [...trap.messages, { role: 'student', text }, { role: 'ai', text: reply }] }); setTrapInput('');
+    if (solved && !trap.solved) setTrapLogs([{ id: uid(), student: student.id, className: student.className, time: now(), topic: trap.topic, error: 'Nhầm khối lượng riêng với áp suất', turns, selfFound: turns < 6, summary: text }, ...trapLogs]);
   };
 
-  // Start exploration for a given topic string
-  const handleExploreTopic = async (topicName: string) => {
-    setErrorMsg(null);
-    const cleanTopic = topicName.trim();
-    if (!cleanTopic) return;
+  const exportCsv = () => { const rows = [['Mã HS','Lớp','Thời gian','Chủ đề','Prompt gốc','Prompt chau chuốt','Câu hỏi','Số lần trả lời','Đúng lần đầu','Lựa chọn đào sâu'], ...exploreLogs.map(x => [x.student,x.className,x.time,x.topic,x.original,x.refined,x.question,String(x.attempts),x.firstTry?'Có':'Không',x.deepDive])]; const csv = rows.map(r => r.map(c => `"${String(c).replaceAll('"','""')}"`).join(',')).join('\n'); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })); a.download = 'bao-cao-ai-khtn8.csv'; a.click(); };
 
-    // Check if topic matches preset
-    if (cleanTopic.toLowerCase().includes('volcano') || cleanTopic.toLowerCase().includes('magma')) {
-      setCurrentSession(PRESET_VOLCANO);
-      setCurrentTab('explore');
-      saveHistoryToStorage([PRESET_VOLCANO, ...history.filter(h => h.id !== PRESET_VOLCANO.id)]);
-      return;
-    }
-
-    setIsLoading(true);
-
-    try {
-      const res = await fetch('/api/explain', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: cleanTopic,
-          depthIndex: 1,
-          totalLayers: settings.maxDepth
-        })
-      });
-
-      const data = await res.json();
-      if (data.layer) {
-        const newSession: ExplorationSession = {
-          id: `session_${Date.now()}`,
-          topic: cleanTopic,
-          currentDepthIndex: 1,
-          totalLayers: settings.maxDepth,
-          createdAt: new Date().toISOString(),
-          layers: [data.layer]
-        };
-
-        setCurrentSession(newSession);
-        setCurrentTab('explore');
-        saveHistoryToStorage([newSession, ...history.filter(h => h.id !== newSession.id)]);
-      } else {
-        throw new Error("Failed to generate layer");
-      }
-    } catch (err: any) {
-      console.error("Error exploring topic:", err);
-      // Fallback local layer creation
-      const fallbackLayer: ExplorationLayer = {
-        depthIndex: 1,
-        depthLabel: "ĐỘ SÂU: 0KM (BỀ MẶT)",
-        title: `Hình 1: Tổng Quan Về ${cleanTopic}`,
-        subtitle: `Góc nhìn bề mặt ban đầu và động lực học vĩ mô của ${cleanTopic}`,
-        imageUrl: PRESET_VOLCANO.layers[0].imageUrl,
-        imageAlt: `Sơ đồ minh họa cho ${cleanTopic}`,
-        summary: `Khám phá các thuộc tính cơ bản của ${cleanTopic}. Qua nhiều lớp độ sâu, chúng ta sẽ phân tích động lực bên trong, sự chuyển giao năng lượng và các thành phần vi mô.`,
-        keyMetrics: [
-          { label: "Mức Độ Sâu", value: "1 / " + settings.maxDepth },
-          { label: "Quy Mô", value: "Vĩ mô" },
-          { label: "Trạng Thái", value: "Đang khám phá" }
-        ],
-        hotspots: [
-          { id: "h1", x: 45, y: 35, label: "Lõi Trọng Tâm", description: `Vùng trọng tâm chính của ${cleanTopic}.` },
-          { id: "h2", x: 70, y: 60, label: "Lớp Ranh Giới", description: "Mặt phân cách giữa các đặc tính vĩ mô và vi mô." }
-        ],
-        quiz: [
-          {
-            id: "q1",
-            question: `Trọng tâm chính của Lớp 1 khi khám phá ${cleanTopic} là gì?`,
-            options: ["Địa hình bề mặt và cấu trúc vĩ mô", "Chỉ là các hạt dưới nguyên tử", "Mô hình thời tiết bên ngoài", "Vật lý chân không thuần túy"],
-            correctAnswerIndex: 0,
-            explanation: "Lớp 1 cung cấp cái nhìn tổng quan vĩ mô trước khi khoan sâu vào các tầng bên dưới."
-          }
-        ],
-        suggestedNextTopics: [
-          `Khoan sâu vào Lớp 2 của ${cleanTopic}`,
-          `Khám phá dòng năng lượng bên trong`,
-          `Phân tích các thành phần cấu trúc cốt lõi`
-        ],
-        audioScript: `Lớp 1: Tổng quan về ${cleanTopic}. Bắt đầu hành trình khám phá đa lớp.`
-      };
-
-      const newSession: ExplorationSession = {
-        id: `session_${Date.now()}`,
-        topic: cleanTopic,
-        currentDepthIndex: 1,
-        totalLayers: settings.maxDepth,
-        createdAt: new Date().toISOString(),
-        layers: [fallbackLayer]
-      };
-
-      setCurrentSession(newSession);
-      setCurrentTab('explore');
-      saveHistoryToStorage([newSession, ...history.filter(h => h.id !== newSession.id)]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Handle Preset Selection
-  const handleSelectPreset = (presetId: string) => {
-    const found = FEATURED_PRESETS.find(p => p.id === presetId);
-    if (found && found.session) {
-      setCurrentSession(found.session);
-      setCurrentTab('explore');
-      saveHistoryToStorage([found.session, ...history.filter(h => h.id !== found.session.id)]);
-    } else {
-      handleExploreTopic(found ? found.title : presetId);
-    }
-  };
-
-  // Drill down deeper into next layer
-  const handleDrillDeeper = async (suggestedTopicOrHotspot?: string | Hotspot) => {
-    if (!currentSession) return;
-
-    const currentIdx = currentSession.currentDepthIndex;
-    const nextIdx = currentIdx + 1;
-
-    // Check if next layer is already in session.layers
-    const existingLayer = currentSession.layers.find(l => l.depthIndex === nextIdx);
-    if (existingLayer) {
-      setCurrentSession({
-        ...currentSession,
-        currentDepthIndex: nextIdx
-      });
-      return;
-    }
-
-    setIsLoading(true);
-
-    try {
-      const focusText = typeof suggestedTopicOrHotspot === 'string'
-        ? suggestedTopicOrHotspot
-        : suggestedTopicOrHotspot?.label;
-
-      const newTotalLayers = Math.max(currentSession.totalLayers, nextIdx);
-
-      const res = await fetch('/api/explain', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: currentSession.topic,
-          depthIndex: nextIdx,
-          totalLayers: newTotalLayers,
-          focusArea: focusText
-        })
-      });
-
-      const data = await res.json();
-      if (data.layer) {
-        const updatedLayers = [...currentSession.layers, data.layer];
-        const updatedSession: ExplorationSession = {
-          ...currentSession,
-          currentDepthIndex: nextIdx,
-          totalLayers: newTotalLayers,
-          layers: updatedLayers
-        };
-        setCurrentSession(updatedSession);
-        saveHistoryToStorage([updatedSession, ...history.filter(h => h.id !== updatedSession.id)]);
-      }
-    } catch (err) {
-      console.error("Error drilling deeper:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSelectLayer = (depthIdx: number) => {
-    if (currentSession) {
-      setCurrentSession({
-        ...currentSession,
-        currentDepthIndex: depthIdx
-      });
-    }
-  };
-
-  const handleResetSession = () => {
-    if (currentSession) {
-      setCurrentSession({
-        ...currentSession,
-        currentDepthIndex: 1
-      });
-    } else {
-      setCurrentTab('explore');
-    }
-  };
-
-  const handleToggleBookmark = () => {
-    if (!currentSession) return;
-    const updated = {
-      ...currentSession,
-      bookmarked: !currentSession.bookmarked
-    };
-    setCurrentSession(updated);
-    saveHistoryToStorage(history.map(h => h.id === updated.id ? updated : h));
-  };
-
-  const handleClearHistory = () => {
-    setHistory([]);
-    try {
-      localStorage.removeItem(STORAGE_KEY_HISTORY);
-    } catch (e) {
-      console.warn(e);
-    }
-  };
-
-  const currentLayer = currentSession
-    ? currentSession.layers.find(l => l.depthIndex === currentSession.currentDepthIndex) || currentSession.layers[0]
-    : null;
-
-  return (
-    <div className="min-h-screen bg-[#faf5ee] text-[#3a302a] font-body flex flex-col pb-24">
-      {/* Top Header Bar */}
-      <TopHeader
-        session={currentSession}
-        currentDepthIndex={currentSession?.currentDepthIndex || 1}
-        totalLayers={currentSession?.totalLayers || settings.maxDepth}
-        onBack={() => {
-          if (currentSession) {
-            setCurrentSession(null);
-          } else {
-            setCurrentTab('explore');
-          }
-        }}
-        onReset={handleResetSession}
-        onToggleBookmark={handleToggleBookmark}
-      />
-
-      {/* Main Content Area based on active tab and state */}
-      {currentTab === 'history' ? (
-        <HistoryView
-          history={history}
-          onOpenSession={(sess) => {
-            setCurrentSession(sess);
-            setCurrentTab('explore');
-          }}
-          onClearHistory={handleClearHistory}
-        />
-      ) : currentTab === 'library' ? (
-        <LibraryView
-          bookmarks={history.filter(h => h.bookmarked)}
-          onOpenSession={(sess) => {
-            setCurrentSession(sess);
-            setCurrentTab('explore');
-          }}
-          onSelectPreset={handleSelectPreset}
-        />
-      ) : currentTab === 'settings' ? (
-        <SettingsView
-          settings={settings}
-          onUpdateSettings={handleUpdateSettings}
-          onClearAllData={handleClearHistory}
-        />
-      ) : (
-        /* Explore Tab */
-        !currentSession ? (
-          <LandingView
-            onExploreTopic={handleExploreTopic}
-            onSelectPreset={handleSelectPreset}
-            isLoading={isLoading}
-          />
-        ) : (
-          <main className="flex-grow flex flex-col items-center justify-center p-4 sm:p-8 w-full max-w-4xl mx-auto space-y-6 text-center">
-            {isLoading && (
-              <div className="w-full p-4 rounded-xl bg-[#c2652a]/10 border border-[#c2652a]/30 text-[#c2652a] font-label text-xs uppercase tracking-wider flex items-center justify-center gap-3 animate-pulse">
-                <span className="w-4 h-4 border-2 border-[#c2652a] border-t-transparent rounded-full animate-spin" />
-                Đang Khoan Vào Lớp {currentSession.currentDepthIndex}...
-              </div>
-            )}
-
-            {currentLayer && (
-              <>
-                {/* 16:9 Scientific Illustration Canvas */}
-                <ExplorationCanvas
-                  layer={currentLayer}
-                  onDrillDown={handleDrillDeeper}
-                />
-
-                {/* Collapsible Thumbnail Path Strip */}
-                <ExplorationPathStrip
-                  layers={currentSession.layers}
-                  currentDepthIndex={currentSession.currentDepthIndex}
-                  totalLayers={currentSession.totalLayers}
-                  onSelectLayer={handleSelectLayer}
-                  onDrillDeeper={() => handleDrillDeeper()}
-                />
-
-                {/* Layer Detail Overview, Metrics, Audio & Quiz */}
-                <LayerDetailPanel
-                  layer={currentLayer}
-                  totalLayers={currentSession.totalLayers}
-                  onDrillDeeper={handleDrillDeeper}
-                  autoPlaySpeech={settings.autoPlaySpeech}
-                />
-              </>
-            )}
-          </main>
-        )
-      )}
-
-      {/* Fixed Bottom Navigation Bar */}
-      <BottomNav
-        currentTab={currentTab}
-        onSelectTab={(tab) => {
-          setCurrentTab(tab);
-        }}
-      />
-    </div>
-  );
+  return <div className="app-shell">
+    <aside className="sidebar">
+      <div className="brand"><div className="brand-mark"><Sparkles size={19}/></div><div><strong>LAB AI</strong><span>KHTN 8 · STEM</span></div></div>
+      <div className="school-chip"><div className="avatar">MA</div><div><b>{student.name}</b><span>{student.id} · {student.className}</span></div><ChevronDown size={15}/></div>
+      <div className="side-label">KHÔNG GIAN HỌC TẬP</div>
+      <nav>{[['overview',BarChart3,'Tổng quan'],['explore',Lightbulb,'Trợ lý khám phá'],['trap',ShieldAlert,'AI Bẫy lỗi'],['reports',FileText,'Báo cáo giáo viên']].map(([key, Icon, label]) => <button key={key as string} className={view === key ? 'nav-item active' : 'nav-item'} onClick={() => setView(key as View)}><Icon size={18}/><span>{label as string}</span>{key === 'trap' && <i>2</i>}</button>)}</nav>
+      <div className="sidebar-bottom"><div className="progress-label"><span>Tiến độ tuần này</span><b>68%</b></div><div className="progress"><span style={{ width: '68%' }}/></div><p>4/6 hoạt động hoàn thành</p><button className="settings-btn"><Settings2 size={16}/> Cài đặt lớp học</button></div>
+    </aside>
+    <main className="main-content">
+      <header className="topbar"><div><div className="breadcrumb">KHÔNG GIAN HỌC TẬP <span>/</span> {view === 'overview' ? 'TỔNG QUAN' : view === 'explore' ? 'TRỢ LÝ KHÁM PHÁ' : view === 'trap' ? 'AI BẪY LỖI' : 'BÁO CÁO'}</div><h1>{view === 'overview' ? 'Chào buổi sáng, Minh Anh' : view === 'explore' ? 'Trợ lý khám phá chủ đề' : view === 'trap' ? 'AI Bẫy lỗi' : 'Báo cáo & tiến độ'}</h1></div><div className="top-actions"><button className="icon-btn"><CircleHelp size={18}/></button><div className="teacher-pill"><div className="teacher-avatar">GV</div><span>Cô Lan · Giáo viên</span></div></div></header>
+      {view === 'overview' && <Overview stats={stats} onNavigate={setView} />}
+      {view === 'explore' && <ExploreView prompt={prompt} setPrompt={setPrompt} submit={submitExplore} discovery={discovery} selected={selectedAnswer} setSelected={setSelectedAnswer} attempts={attempts} answer={answerExplore} retry={() => { makeDiscovery(discovery?.topic || 'Áp suất', true); setAttempts(a => a + 1); }} deepChoice={deepChoice} setDeepChoice={setDeepChoice} save={saveExplore} />}
+      {view === 'trap' && <TrapView trap={trap} input={trapInput} setInput={setTrapInput} send={sendTrap} reset={() => setTrap({ ...trap, turns: 0, solved: false, revealed: false, messages: [{ role: 'ai', text: 'Hãy đọc kỹ phát biểu. Em có nhận thấy điều gì chưa hợp lý không? Có thể kiểm tra cả đại lượng và đơn vị.' }] })} />}
+      {view === 'reports' && <Reports stats={stats} logs={exploreLogs} traps={trapLogs} exportCsv={exportCsv} />}
+    </main>
+  </div>;
 }
+
+function Overview({ stats, onNavigate }: { stats: any; onNavigate: (v: View) => void }) { return <div className="page"><section className="hero-card"><div><div className="eyebrow"><span className="live-dot"/> BUỔI HỌC ĐANG DIỄN RA · 12 THÁNG 9, 2026</div><h2>Khối lượng riêng<br/><em>& Áp suất</em></h2><p>Khám phá, kiểm chứng và biến sự tò mò thành hiểu biết khoa học.</p><button className="primary-btn" onClick={() => onNavigate('explore')}>Bắt đầu khám phá <ArrowRight size={17}/></button></div><div className="hero-orbit"><div className="orbit orbit-1"/><div className="orbit orbit-2"/><div className="planet"><span>ρ</span></div><div className="orbit-label label-a">D = m / V</div><div className="orbit-label label-b">p = F / S</div></div></section><section className="stats-grid"><Stat icon={BookOpen} label="Chủ đề đã khám phá" value={stats.topics} suffix="chủ đề" color="violet"/><Stat icon={Target} label="Đúng ngay lần đầu" value={`${stats.firstTry}%`} suffix="mục tiêu 80%" color="cyan"/><Stat icon={RefreshCw} label="Số lần tạo lại TB" value={stats.avgRetry} suffix="lần / câu hỏi" color="orange"/><Stat icon={ShieldAlert} label="Tự tìm ra bẫy lỗi" value={`${stats.found}%`} suffix="năng lực kiểm chứng" color="pink"/></section><div className="section-head"><div><div className="eyebrow">LỘ TRÌNH CỦA EM</div><h3>Hai cách để học sâu hơn</h3></div><span className="streak"><Flame size={16}/> 3 ngày liên tiếp</span></div><section className="tool-cards"><ToolCard number="01" icon={Lightbulb} title="Trợ lý khám phá" text="Viết prompt, xem AI chau chuốt và vận dụng kiến thức qua câu hỏi tương tác." color="violet" action="Khám phá ngay" onClick={() => onNavigate('explore')} /><ToolCard number="02" icon={ShieldAlert} title="AI Bẫy lỗi" text="Trò chuyện với một AI cố tình sai. Tìm ra lỗi trước khi AI tiết lộ đáp án." color="orange" action="Vào ôn tập" onClick={() => onNavigate('trap')} /></section><section className="tip-banner"><div className="tip-icon"><Zap size={20}/></div><div><b>Mẹo học hôm nay</b><p>Một prompt tốt luôn nói rõ <strong>em muốn biết gì</strong>, dành cho <strong>ai</strong>, và cần câu trả lời ở mức độ nào.</p></div><span className="tip-tag">KỸ NĂNG AI</span></section></div> }
+function Stat({ icon: Icon, label, value, suffix, color }: any) { return <div className="stat-card"><div className={`stat-icon ${color}`}><Icon size={19}/></div><div><span>{label}</span><strong>{value}</strong><small>{suffix}</small></div></div> }
+function ToolCard({ number, icon: Icon, title, text, color, action, onClick }: any) { return <div className={`tool-card ${color}`}><div className="tool-top"><span className="tool-num">{number}</span><div className="tool-icon"><Icon size={21}/></div></div><h4>{title}</h4><p>{text}</p><button onClick={onClick}>{action} <ArrowRight size={15}/></button></div> }
+
+function ExploreView({ prompt, setPrompt, submit, discovery, selected, setSelected, attempts, answer, retry, deepChoice, setDeepChoice, save }: any) { return <div className="page explore-page"><div className="split-heading"><div><p className="muted">CÔNG CỤ 01 · TƯƠNG TÁC VỚI AI</p><h2>Điều gì làm em tò mò?</h2><p className="intro">Viết câu hỏi theo cách của em. AI sẽ giúp làm rõ yêu cầu — không thay em suy nghĩ.</p></div><div className="stepper"><span className="on">01</span><i/><span className={discovery ? 'on' : ''}>02</span><i/><span className={selected !== null ? 'on' : ''}>03</span></div></div><div className="prompt-box"><div className="prompt-head"><span><MessageCircle size={17}/> PROMPT CỦA EM</span><span className={prompt.trim().split(/\s+/).filter(Boolean).length >= 3 ? 'word-count ready' : 'word-count'}>{prompt.trim().split(/\s+/).filter(Boolean).length} từ · tối thiểu 3</span></div><textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Ví dụ: Vì sao dầu nổi trên nước?" /><div className="prompt-foot"><span>Hãy viết câu hỏi thật tự nhiên, không cần hoàn hảo.</span><button className="primary-btn small" disabled={prompt.trim().split(/\s+/).length < 3} onClick={submit}>Gửi yêu cầu <Send size={15}/></button></div></div>{discovery && <div className="discovery-grid"><div className="left-column"><section className="refine-card"><div className="card-kicker"><Sparkles size={15}/> AI ĐÃ CHAU CHUỐT PROMPT</div><div className="prompt-compare"><div><label>PROMPT GỐC</label><p>“{prompt || 'giải thích chủ đề'}”</p></div><ArrowRight size={17}/><div className="refined"><label>PROMPT RÕ HƠN</label><p>“{discovery.refined}”</p></div></div><div className="why"><Lightbulb size={16}/><span><b>Vì sao AI sửa như vậy?</b> {discovery.why}</span></div></section><section className="content-card"><div className="card-kicker">01 · GIẢI THÍCH NGẮN GỌN</div><h3>{discovery.topic}</h3><p>{discovery.text}</p><div className={`science-visual ${discovery.visual}`}><div className="visual-title">MINH HỌA TRỰC QUAN</div>{discovery.visual === 'density' ? <><div className="beaker water"><span>DẦU</span></div><div className="beaker oil"><span>NƯỚC</span></div><div className="visual-caption">Dầu nhẹ hơn nước</div></> : <><div className="force-arrow">F ↓</div><div className="surface-line"/><div className="area-box"><span>S nhỏ</span></div><div className="pressure-formula">p = F / S</div></>}</div><div className="audio-row"><button onClick={() => window.speechSynthesis?.speak(new SpeechSynthesisUtterance(discovery.voice))}><Play size={14} fill="currentColor"/> Nghe giải thích</button><span><Volume2 size={14}/> 0:24</span></div></section></div><div className="right-column"><section className="quiz-card"><div className="card-kicker"><Target size={15}/> CÂU HỎI VẬN DỤNG</div><div className="quiz-meta"><span>Đọc · Xem · Nghe · Trả lời</span><span>{attempts}/3 lần</span></div><h3>{discovery.question}</h3><div className="options">{discovery.options.map((o: string, i: number) => <button key={o} className={selected === i ? (selected === discovery.answer ? 'option correct' : 'option wrong') : 'option'} onClick={() => setSelected(i)}><span>{String.fromCharCode(65+i)}</span>{o}{selected === i && (selected === discovery.answer ? <Check size={16}/> : <X size={16}/>)}</button>)}</div>{selected !== null && selected !== discovery.answer && <div className="feedback wrong-feedback"><RefreshCw size={15}/><span>Chưa đúng. Hãy đọc lại phần giải thích và thử lại.</span></div>}{selected === discovery.answer && <div className="feedback right-feedback"><Check size={15}/><span><b>Chính xác!</b> {discovery.explanation}</span></div>}<div className="quiz-actions">{selected !== null && selected !== discovery.answer && attempts < 3 && <button className="ghost-btn" onClick={retry}>Tạo câu hỏi mới <RefreshCw size={14}/></button>}{selected !== null && selected === discovery.answer && <button className="primary-btn small" onClick={save}>Lưu kết quả <Check size={14}/></button>}</div></section>{selected === discovery.answer && <section className="deep-card"><div className="card-kicker"><ArrowRight size={15}/> ĐÀO SÂU THÊM</div><p>Em muốn tìm hiểu tiếp theo hướng nào?</p>{discovery.deep.map((d: string) => <button key={d} className={deepChoice === d ? 'deep-option chosen' : 'deep-option'} onClick={() => setDeepChoice(d)}>{d}<ArrowRight size={14}/></button>)}</section>}</div></div>}</div> }
+
+function TrapView({ trap, input, setInput, send, reset }: any) { return <div className="page trap-page"><div className="trap-intro"><div><p className="muted">CÔNG CỤ 02 · LUYỆN KIỂM CHỨNG</p><h2>AI đang cố tình sai.</h2><p className="intro">Đừng tin ngay. Hãy hỏi, kiểm tra đơn vị và chỉ ra lỗi bằng lời của em.</p></div><div className="limit-chip"><span className="live-dot"/> GỢI Ý TĂNG DẦN · TỐI ĐA 6 LƯỢT</div></div><div className="trap-layout"><section className="trap-claim"><div className="card-kicker"><ShieldAlert size={16}/> PHÁT BIỂU CÓ BẪY · {trap.topic.toUpperCase()}</div><div className="claim-mark">“</div><blockquote>{trap.claim}</blockquote><div className="claim-footer"><span><Activity size={15}/> Lỗi được cài: <b>1 lỗi duy nhất</b></span><span className="turn-badge">Lượt {trap.turns}/6</span></div><div className="checklist"><div><span>01</span> Kiểm tra các đại lượng</div><div><span>02</span> Kiểm tra đơn vị đo</div><div><span>03</span> Đối chiếu công thức</div></div></section><section className="chat-card"><div className="chat-head"><div className="ai-avatar"><Sparkles size={18}/></div><div><b>AI Bẫy lỗi</b><span>Đang chờ phản biện của em</span></div><button onClick={reset}><RefreshCw size={15}/></button></div><div className="messages">{trap.messages.map((m: any, i: number) => <div className={m.role === 'ai' ? 'message ai' : 'message student'} key={i}><div className="message-bubble">{m.text}</div><small>{m.role === 'ai' ? 'AI Bẫy lỗi' : 'Em'} · vừa xong</small></div>)}{trap.solved && <div className="solved-banner"><Check size={17}/><div><b>Em đã tìm ra lỗi!</b><span>Khối lượng riêng không phải là áp suất.</span></div></div>}</div><div className="chat-input"><input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Nhập nhận xét hoặc câu hỏi của em..."/><button onClick={send}><Send size={16}/></button></div></section></div></div> }
+
+function Reports({ stats, logs, traps, exportCsv }: any) { return <div className="page reports-page"><div className="report-head"><div><p className="muted">DÀNH CHO GIÁO VIÊN</p><h2>Nhật ký học tập</h2><p className="intro">Dữ liệu từ hai công cụ được ghi lại để nhìn thấy quá trình, không chỉ điểm số.</p></div><button className="outline-btn" onClick={exportCsv}><Download size={16}/> Xuất CSV</button></div><section className="report-kpis"><div><span>Học sinh tham gia</span><b>24</b><small>trong lớp 8A1</small></div><div><span>Lượt khám phá</span><b>{logs.length}</b><small>tăng 18% tuần này</small></div><div><span>Tự tìm ra bẫy</span><b>{stats.found}%</b><small>mục tiêu 70%</small></div><div><span>Thời gian học TB</span><b>12′</b><small>mỗi lượt</small></div></section><div className="report-grid"><section className="table-card"><div className="table-head"><div><h3>Bảng 1 · Nhật ký khám phá</h3><span>1 dòng = 1 lượt học</span></div><button className="filter-btn">Tất cả lớp <ChevronDown size={14}/></button></div><div className="table-wrap"><table><thead><tr><th>HỌC SINH</th><th>CHỦ ĐỀ</th><th>THỜI GIAN</th><th>LẦN TRẢ LỜI</th><th>ĐÚNG LẦN ĐẦU</th></tr></thead><tbody>{logs.map((x: ExploreLog) => <tr key={x.id}><td><b>{x.student}</b><span>{x.className}</span></td><td>{x.topic}</td><td>{x.time}</td><td><span className="attempt-pill">{x.attempts} lần</span></td><td>{x.firstTry ? <span className="yes"><Check size={13}/> Có</span> : <span className="no">Không</span>}</td></tr>)}</tbody></table></div></section><section className="insight-card"><div className="card-kicker"><BarChart3 size={15}/> TÍN HIỆU ĐÁNG CHÚ Ý</div><h3>Học sinh đang tiến bộ ở đâu?</h3><div className="insight-row"><div className="mini-ring" style={{'--p': `${stats.firstTry}%`} as any}><b>{stats.firstTry}%</b></div><p><b>Đúng ngay lần đầu</b><br/>tăng 12% so với tuần trước</p></div><div className="insight-row"><div className="mini-bars"><i/><i/><i/><i/><i/></div><p><b>Khối lượng riêng</b><br/>là chủ đề được khám phá nhiều nhất</p></div><div className="teacher-note"><span>Gợi ý cho cô</span><p>Cho thêm ví dụ phân biệt <b>khối lượng</b> và <b>khối lượng riêng</b> ở hoạt động tiếp theo.</p></div></section></div></div> }
+
+export default App;
