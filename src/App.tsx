@@ -4,6 +4,7 @@ import {
   FileText, Flame, GraduationCap, Lightbulb, MessageCircle, Play, RefreshCw, Send,
   Settings2, ShieldAlert, Sparkles, Target, UserRound, Volume2, X, Zap
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 type View = 'overview' | 'explore' | 'trap' | 'reports';
 type ExploreLog = { id: string; student: string; className: string; time: string; topic: string; original: string; refined: string; question: string; attempts: number; firstTry: boolean; deepDive: string };
@@ -67,7 +68,7 @@ function App() {
     if (solved && !trap.solved) setTrapLogs([{ id: uid(), student: student.id, className: student.className, time: now(), topic: trap.topic, error: 'Nhầm khối lượng riêng với áp suất', turns, selfFound: turns < 6, summary: text }, ...trapLogs]);
   };
 
-  const exportCsv = () => { const rows = [['Mã HS','Lớp','Thời gian','Chủ đề','Prompt gốc','Prompt chau chuốt','Câu hỏi','Số lần trả lời','Đúng lần đầu','Lựa chọn đào sâu'], ...exploreLogs.map(x => [x.student,x.className,x.time,x.topic,x.original,x.refined,x.question,String(x.attempts),x.firstTry?'Có':'Không',x.deepDive])]; const csv = rows.map(r => r.map(c => `"${String(c).replaceAll('"','""')}"`).join(',')).join('\n'); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })); a.download = 'bao-cao-ai-khtn8.csv'; a.click(); };
+  const exportCsv = () => { const toolOne = [['Mã HS','Lớp','Thời gian','Chủ đề','Prompt gốc','Prompt đã chau chuốt','Câu hỏi','Số lần trả lời','Đúng lần đầu','Lựa chọn đào sâu'], ...exploreLogs.map(x => [x.student,x.className,x.time,x.topic,x.original,x.refined,x.question,x.attempts,x.firstTry?'Có':'Không',x.deepDive])]; const toolTwo = [['Mã HS','Lớp','Thời gian','Chủ đề','Lỗi đã cài','Số lượt hội thoại','Tự tìm ra?','Tóm tắt hội thoại'], ...trapLogs.map(x => [x.student,x.className,x.time,x.topic,x.error,x.turns,x.selfFound?'Có':'Không',x.summary])]; const students = Array.from(new Set([...exploreLogs.map(x => `${x.student}|${x.className}`), ...trapLogs.map(x => `${x.student}|${x.className}`)])); const summary = [['Mã HS','Lớp','Số chủ đề đã khám phá','Tỉ lệ đúng lần đầu','Số lần tạo lại TB','Tự tìm ra lỗi / tổng lượt','Số lượt hội thoại TB'], ...students.map((key, i) => { const [id, className] = key.split('|'); const e = exploreLogs.filter(x => x.student === id); const t = trapLogs.filter(x => x.student === id); return [id,className,e.length ? new Set(e.map(x => x.topic)).size : 0,e.length ? `${Math.round(e.filter(x => x.firstTry).length / e.length * 100)}%` : '0%',e.length ? (e.reduce((a, x) => a + x.attempts - 1, 0) / e.length).toFixed(1) : '0.0',`${t.filter(x => x.selfFound).length} / ${t.length}`,t.length ? (t.reduce((a, x) => a + x.turns, 0) / t.length).toFixed(1) : '0.0']; })]; const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(toolOne), 'Công cụ 1'); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(toolTwo), 'Công cụ 2'); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Tổng hợp HS'); XLSX.writeFile(wb, 'bao-cao-ai-khtn8.xlsx'); };
 
   return <div className="app-shell">
     <aside className="sidebar">
